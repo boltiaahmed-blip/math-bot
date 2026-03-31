@@ -1,10 +1,20 @@
+import os
+import threading
 import telebot
 import re
+from flask import Flask
 from sympy import symbols, solve
 
 # 🔑 Токен бота
-TOKEN = '8392751195:AAGFtjuRGxQTBMrV8xOsIalLHBhal2ugPMo'
+TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN', '8392751195:AAGFtjuRGxQTBMrV8xOsIalLHBhal2ugPMo')
 bot = telebot.TeleBot(TOKEN)
+
+# -------------------- Веб-сервер (для UptimeRobot) --------------------
+app = Flask(__name__)
+
+@app.route('/')
+def index():
+    return 'MathBot работает!'
 
 # -------------------- /start --------------------
 @bot.message_handler(commands=['start'])
@@ -122,48 +132,33 @@ def ask_equation(message):
 @bot.message_handler(func=lambda m: True)
 def handle_text(message):
     text = message.text.strip()
-
     if '=' in text and 'x' in text.lower():
         process_equation(message)
     elif text.startswith('/'):
         bot.send_message(message.chat.id, "❌ Неизвестная команда. Используйте /help")
     else:
-        bot.send_message(
-            message.chat.id,
-            "🤔 Это не похоже на уравнение.",
-            parse_mode="HTML"
-        )
+        bot.send_message(message.chat.id, "🤔 Это не похоже на уравнение.", parse_mode="HTML")
 
 
 # -------------------- Алгоритм для конкретного уравнения --------------------
 def get_algorithm(eq_text):
     steps = []
-
     left, right = eq_text.split('=')
-
-    # Определяем тип уравнения
     if "x**2" in eq_text or "x^2" in eq_text:
-        # Квадратное
         steps.append("🔹 Тип: квадратное уравнение")
-
         steps.append("1️⃣ Переносим всё в одну сторону")
         steps.append(f"{left} - ({right}) = 0")
-
         steps.append("2️⃣ Приводим к виду ax² + bx + c")
         steps.append("3️⃣ Находим дискриминант: D = b² - 4ac")
         steps.append("4️⃣ Вычисляем корни по формуле")
         steps.append("5️⃣ Записываем ответ")
-
     else:
-        # Линейное
         steps.append("🔹 Тип: линейное уравнение")
-
         steps.append("1️⃣ Раскрываем скобки (если есть)")
         steps.append("2️⃣ Переносим все x в одну сторону")
         steps.append("3️⃣ Переносим числа в другую сторону")
         steps.append("4️⃣ Делим на коэффициент при x")
         steps.append("5️⃣ Получаем ответ")
-
     return "\n".join(steps)
 
 
@@ -173,7 +168,6 @@ def process_equation(message):
         equation = message.text.replace(' ', '')
         solution = solve_equation(equation)
         algorithm = get_algorithm(equation)
-
         response = f"""
 <b>✅ Уравнение решено!</b>
 
@@ -187,42 +181,26 @@ def process_equation(message):
 {solution}
 """
         bot.send_message(message.chat.id, response, parse_mode="HTML")
-
     except Exception:
-        bot.send_message(
-            message.chat.id,
-            "❌ Не удалось решить уравнение.",
-            parse_mode="HTML"
-        )
+        bot.send_message(message.chat.id, "❌ Не удалось решить уравнение.", parse_mode="HTML")
 
 
 def solve_equation(eq_text):
     x = symbols('x')
-
-    eq_text = eq_text.replace(' ', '')
-    eq_text = eq_text.replace('^', '**')
-
+    eq_text = eq_text.replace(' ', '').replace('^', '**')
     if '=' not in eq_text:
         raise ValueError("Нет =")
-
     left, right = eq_text.split('=')
-
     left = re.sub(r'(\d)(x)', r'\1*\2', left)
     right = re.sub(r'(\d)(x)', r'\1*\2', right)
-
     left = re.sub(r'(\d)\(', r'\1*(', left)
     right = re.sub(r'(\d)\(', r'\1*(', right)
-
     left = re.sub(r'\)\(', r')*(', left)
     right = re.sub(r'\)\(', r')*(', right)
-
     equation = left + "-(" + right + ")"
-
     solutions = solve(equation, x)
-
     if not solutions:
         raise ValueError("Нет решений")
-
     if len(solutions) == 1:
         return f"x = {solutions[0]}"
     else:
@@ -230,6 +208,13 @@ def solve_equation(eq_text):
 
 
 # -------------------- Запуск --------------------
+def run_flask():
+    port = int(os.environ.get('PORT', 8080))
+    app.run(host='0.0.0.0', port=port)
+
 if __name__ == "__main__":
     print("🤖 Бот запущен")
+    flask_thread = threading.Thread(target=run_flask)
+    flask_thread.daemon = True
+    flask_thread.start()
     bot.polling(none_stop=True)
